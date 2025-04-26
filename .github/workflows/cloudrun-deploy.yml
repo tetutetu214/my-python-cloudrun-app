@@ -49,7 +49,7 @@ jobs:
       run: |
         # Cloud Runサービスをデプロイ
         gcloud run deploy ${{ env.SERVICE_NAME }} \
-          --image gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest \
+          --source . \
           --platform managed \
           --region ${{ env.REGION }} \
           --allow-unauthenticated  # 認証なしでアクセス可能に設定
