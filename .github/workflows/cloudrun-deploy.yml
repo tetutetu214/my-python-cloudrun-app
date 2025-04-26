@@ -1,55 +1,58 @@
-# ワークフローの名前
 name: Build and Deploy to Cloud Run
 
-# 実行トリガ設定
 on:
   push:
-    # masterブランチにプッシュされたときだけ実行
-    branches: [ master ]
+    branches: [ master ] # masterブランチ名を確認してください
 
-# 環境変数の設定（全ステップから参照可能）
 env:
-  SERVICE_NAME: my-cloudrun-app  # Cloud Runのサービス名
-  REGION: asia-northeast1        # デプロイするリージョン
+  SERVICE_NAME: my-cloudrun-app # Cloud Runのサービス名
+  REGION: asia-northeast1      # デプロイするリージョン
+  # PROJECT_IDはSecretsから取得するのでenvには不要
 
-# 実行する作業（ジョブ）の定義
 jobs:
-  # ジョブ名
   build-and-deploy:
     runs-on: ubuntu-latest
+
+    # GCPへのパーミッション設定 (Workload Identity Federationを推奨しますが、SAキーも可)
+    permissions:
+      contents: 'read'
+      id-token: 'write' # WIF を使う場合に必要
+
     steps:
-    # ステップ1: GitHubからコードを取得
     - name: Checkout code
-      uses: actions/checkout@v3  # v3は最新の安定バージョン
-    
-    # ステップ2: GCPの認証を行う
-    - name: Google Auth
-      id: auth  # このステップのID（他のステップから参照可能）
-      uses: google-github-actions/auth@v1  # v1は最新の安定バージョン
+      uses: actions/checkout@v4 # 最新バージョンを使用
+
+    - name: Google Auth # SAキーを使う場合
+      id: auth
+      uses: google-github-actions/auth@v2 # 最新バージョンを使用
       with:
-        # GitHub Secretsから認証情報を取得
         credentials_json: ${{ secrets.GCP_SA_KEY }}
-    
-    # ステップ3: Google Cloud SDKをセットアップ
+
     - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v1  # v1は最新の安定バージョン
-    
-    # ステップ4: ローカルでDockerコンテナをビルドしてGCRにプッシュ
-    - name: Build Container using local Docker
+      uses: google-github-actions/setup-gcloud@v2 # 最新バージョンを使用
+      with:
+        project_id: ${{ secrets.PROJECT_ID }} # プロジェクトIDを設定
+
+    - name: Configure Docker
+      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev, gcr.io # プッシュ先のレジストリを設定 (ARとGCR両方)
+
+    - name: Build and Push Container Image
       run: |
-        # Dockerfileからイメージをビルド
-        docker build -t gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest .
-        # GCRへの認証を設定
-        gcloud auth configure-docker
-        # ビルドしたイメージをGCRにプッシュ
-        docker push gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest
-    
-    # ステップ5: Cloud Runにデプロイ
+        # イメージ名を定義 (Artifact Registry推奨)
+        # 例: IMAGE_NAME="${{ env.REGION }}-docker.pkg.dev/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+        # GCR互換 (Artifact Registryにリダイレクトされる) の場合:
+        IMAGE_NAME="gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" # github.shaでコミットごとに一意なタグを推奨
+
+        docker build -t $IMAGE_NAME .
+        docker push $IMAGE_NAME
+
     - name: Deploy to Cloud Run
       run: |
-        # Cloud Runサービスをデプロイ
+        # 直前のステップでプッシュしたイメージを指定してデプロイ
+        IMAGE_NAME="gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" # Buildステップと同じイメージ名を指定
         gcloud run deploy ${{ env.SERVICE_NAME }} \
-          --source . \
+          --image $IMAGE_NAME \ # --source . の代わりに --image を使用
           --platform managed \
           --region ${{ env.REGION }} \
-          --allow-unauthenticated  # 認証なしでアクセス可能に設定
+          --allow-unauthenticated \
+          --quiet # プロンプトなしで実行
