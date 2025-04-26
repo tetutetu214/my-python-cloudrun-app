@@ -7,7 +7,6 @@ on:
 env:
   SERVICE_NAME: my-cloudrun-app # Cloud Runのサービス名
   REGION: asia-northeast1      # デプロイするリージョン
-  # PROJECT_IDはSecretsから取得するのでenvには不要
 
 jobs:
   build-and-deploy:
@@ -34,7 +33,7 @@ jobs:
         project_id: ${{ secrets.PROJECT_ID }} # プロジェクトIDを設定
 
     - name: Configure Docker
-      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev, gcr.io # プッシュ先のレジストリを設定 (ARとGCR両方)
+      run: gcloud auth configure-docker
 
     - name: Build and Push Container Image
       run: |
