@@ -2,56 +2,32 @@ name: Build and Deploy to Cloud Run
 
 on:
   push:
-    branches: [ master ] # masterブランチ名を確認してください
+    branches: [ master ]
 
 env:
-  SERVICE_NAME: my-cloudrun-app # Cloud Runのサービス名
-  REGION: asia-northeast1      # デプロイするリージョン
+  SERVICE_NAME: my-cloudrun-app
+  REGION: asia-northeast1
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
-    # GCPへのパーミッション設定 (Workload Identity Federationを推奨しますが、SAキーも可)
-    permissions:
-      contents: 'read'
-      id-token: 'write' # WIF を使う場合に必要
-
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4 # 最新バージョンを使用
-
-    - name: Google Auth # SAキーを使う場合
+      uses: actions/checkout@v4
+    
+    - name: Google Auth
       id: auth
-      uses: google-github-actions/auth@v2 # 最新バージョンを使用
+      uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
-
+    
     - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2 # 最新バージョンを使用
-      with:
-        project_id: ${{ secrets.PROJECT_ID }} # プロジェクトIDを設定
-
-    - name: Configure Docker
-      run: gcloud auth configure-docker
-
-    - name: Build and Push Container Image
+      uses: google-github-actions/setup-gcloud@v2
+    
+    - name: Deploy to Cloud Run directly from source
       run: |
-        # イメージ名を定義 (Artifact Registry推奨)
-        # 例: IMAGE_NAME="${{ env.REGION }}-docker.pkg.dev/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
-        # GCR互換 (Artifact Registryにリダイレクトされる) の場合:
-        IMAGE_NAME="gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" # github.shaでコミットごとに一意なタグを推奨
-
-        docker build -t $IMAGE_NAME .
-        docker push $IMAGE_NAME
-
-    - name: Deploy to Cloud Run
-      run: |
-        # 直前のステップでプッシュしたイメージを指定してデプロイ
-        IMAGE_NAME="gcr.io/${{ secrets.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" # Buildステップと同じイメージ名を指定
         gcloud run deploy ${{ env.SERVICE_NAME }} \
-          --image $IMAGE_NAME \ # --source . の代わりに --image を使用
+          --source . \
           --platform managed \
           --region ${{ env.REGION }} \
-          --allow-unauthenticated \
-          --quiet # プロンプトなしで実行
+          --allow-unauthenticated
